@@ -4,6 +4,8 @@
  * Date: 10/27/17 3:17 PM.
  */
 
+namespace Fichtme\CommandRunner
+
 use Doctrine\Common\Collections\ArrayCollection;
 use Symfony\Component\Console\Helper\ProgressBar;
 use Symfony\Component\Console\Style\SymfonyStyle;
