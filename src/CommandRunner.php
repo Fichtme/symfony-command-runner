@@ -231,11 +231,13 @@ class CommandRunner
         if (!$this->openProcesses->isEmpty()) {
             $process = $this->openProcesses->first();
             $this->activeProcesses->add($process);
+            if ($this->progressBar) {
+                $this->progressBar->setMessage($process->getCommandLine());
+            }
             $process = $this->modifyCommand($process);
             $process->start();
             $this->openProcesses->removeElement($process);
             if ($this->progressBar) {
-                $this->progressBar->setMessage($process->getCommandLine());
                 $this->progressBar->setProgress($this->progressBar->getProgress() + 1);
             }
         }
