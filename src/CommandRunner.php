@@ -9,9 +9,12 @@ namespace Fichtme\CommandRunner;
 use Doctrine\Common\Collections\ArrayCollection;
 use Symfony\Component\Console\Helper\ProgressBar;
 use Symfony\Component\Console\Style\SymfonyStyle;
-use Symfony\Component\Filesystem\LockHandler;
+use Symfony\Component\Lock\LockFactory;
+use Symfony\Component\Lock\LockInterface;
+use Symfony\Component\Lock\Store\FlockStore;
 use Symfony\Component\Process\PhpExecutableFinder;
 use Symfony\Component\Process\Process;
+use function sprintf;
 
 /**
  * Class CommandRunner
@@ -54,7 +57,7 @@ class CommandRunner
     /**
      * CommandRunner constructor.
      *
-     * @param array       $processes
+     * @param array $processes
      * @param null|string $binary
      */
     public function __construct(array $processes, $binary = null)
@@ -78,7 +81,7 @@ class CommandRunner
      *
      * @return $this
      */
-    public function continueOnError($continue = true)
+    public function continueOnError($continue = true): self
     {
         $this->continueOnError = $continue;
 
@@ -116,19 +119,22 @@ class CommandRunner
      * The lock handler only works if you're using just one server.
      * If you have several hosts, you must not use this.
      *
-     * @param string $lock
+     * @param string $command
+     * @param string $lockName
      *
-     * @return LockHandler
+     * @return LockInterface
      */
-    public static function lock($command, $lock = '')
+    public static function lock(string $command, $lockName = ''): LockInterface
     {
-        $lockHandler = new LockHandler($command . $lock);
-        if (!$lockHandler->lock()) {
-//            $this->io->error('This command is already running in another process.');
-            exit(500);
+        # TODO: dont use flockstore if user doesnt want to use it.
+        $store = new FlockStore();
+        $factory = new LockFactory($store);
+        $lock = $factory->createLock($command . $lockName, 0, true);
+        if (!$lock->acquire()) {
+            exit(1);
         }
 
-        return $lockHandler;
+        return $lock;
     }
 
     /**
@@ -179,7 +185,7 @@ class CommandRunner
     {
         $this->start();
         while ($this->hasOpenProcesses()) {
-            if(!$this->process()) {
+            if (!$this->process()) {
                 break;
             }
             usleep(1000);
@@ -195,6 +201,9 @@ class CommandRunner
         }
     }
 
+    /**
+     * Create styled progressbar
+     */
     private function createProgressBar()
     {
         $progressBar = $this->io->createProgressBar(count($this->openProcesses) * 2);
@@ -226,6 +235,9 @@ class CommandRunner
         return $this->validateRunningProcesses();
     }
 
+    /**
+     * Spawns next process
+     */
     private function spawnNextProcess()
     {
         if (!$this->openProcesses->isEmpty()) {
@@ -250,14 +262,24 @@ class CommandRunner
      */
     private function modifyCommand(Process $process): Process
     {
-        $command = $process->getCommandLine();
+        $oldCommandLine = $process->getCommandLine();
 
-        $process->setCommandLine(\sprintf(
+        $newCommandLine = sprintf(
             '%s %s %s',
             $this->binary,
             $this->subPath,
-            $command
-        ));
+            $oldCommandLine
+        );
+
+//        $process = new Process(
+//            explode(' ', $newCommandLine),
+//            $process->getWorkingDirectory(),
+//            $process->getEnv(),
+//            $process->getInput(),
+//            $process->getTimeout()
+//        );
+
+        $process->setCommandLine($newCommandLine);
 
         return $process;
     }
@@ -265,15 +287,15 @@ class CommandRunner
     /**
      * @return bool
      */
-    private function validateRunningProcesses()
+    private function validateRunningProcesses(): bool
     {
         $activeProcesses = $this->activeProcesses;
         foreach ($activeProcesses as $activeProcess) {
             if (!$activeProcess->isRunning()) {
-                if($activeProcess->getErrorOutput()){
+                if ($activeProcess->getErrorOutput()) {
                     $this->errors->add([
                         'command' => $activeProcess->getCommandLine(),
-                        'error' =>  $activeProcess->getErrorOutput()
+                        'error' => $activeProcess->getErrorOutput()
                     ]);
                     if (!$this->continueOnError) {
                         return false;
@@ -296,11 +318,19 @@ class CommandRunner
     private function finish()
     {
         if (!$this->errors->isEmpty()) {
-            foreach($this->errors as $error) {
+            foreach ($this->errors as $error) {
                 $this->io->warning($error);
             }
         }
 
         $this->active = false;
+    }
+
+    /**
+     * @return ArrayCollection
+     */
+    public function getErrors(): ArrayCollection
+    {
+        return $this->errors;
     }
 }
