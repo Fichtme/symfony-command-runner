@@ -262,26 +262,12 @@ class CommandRunner
      */
     private function modifyCommand(Process $process): Process
     {
-        $oldCommandLine = $process->getCommandLine();
-
-        $newCommandLine = sprintf(
+        return Process::fromShellCommandline(sprintf(
             '%s %s %s',
             $this->binary,
             $this->subPath,
-            $oldCommandLine
-        );
-
-//        $process = new Process(
-//            explode(' ', $newCommandLine),
-//            $process->getWorkingDirectory(),
-//            $process->getEnv(),
-//            $process->getInput(),
-//            $process->getTimeout()
-//        );
-
-        $process->setCommandLine($newCommandLine);
-
-        return $process;
+            $process->getCommandLine()
+        ));
     }
 
     /**
