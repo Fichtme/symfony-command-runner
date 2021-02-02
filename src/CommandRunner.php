@@ -188,7 +188,7 @@ class CommandRunner
             if (!$this->process()) {
                 break;
             }
-            usleep(1000);
+            usleep(5000);
         }
         $this->finish();
     }
@@ -242,14 +242,17 @@ class CommandRunner
     {
         if (!$this->openProcesses->isEmpty()) {
             /** @var Process $process */
-            $process = $this->openProcesses->first();
-            $process = $this->modifyCommand($process);
+            $orgiginProcess = $this->openProcesses->first();
+            $process = $this->modifyCommand($orgiginProcess);
             $this->activeProcesses->add($process);
+
             if ($this->progressBar) {
                 $this->progressBar->setMessage($process->getCommandLine());
+                $this->progressBar->display();
             }
             $process->start();
-            $this->openProcesses->removeElement($process);
+            $removed = $this->openProcesses->removeElement($orgiginProcess);
+
             if ($this->progressBar) {
                 $this->progressBar->setProgress($this->progressBar->getProgress() + 1);
             }
@@ -277,7 +280,8 @@ class CommandRunner
     private function validateRunningProcesses(): bool
     {
         $activeProcesses = $this->activeProcesses;
-        foreach ($activeProcesses as $activeProcess) {
+
+        foreach ($activeProcesses as $key => $activeProcess) {
             if (!$activeProcess->isRunning()) {
                 if ($activeProcess->getErrorOutput()) {
                     $this->errors->add([
@@ -290,13 +294,12 @@ class CommandRunner
                 }
 
                 $this->completedProcesses->add($activeProcess);
-                $this->activeProcesses->removeElement($activeProcess);
-
+                $this->activeProcesses->remove($key);
                 if ($this->progressBar) {
                     $this->progressBar->setProgress($this->progressBar->getProgress() + 1);
                 }
             }
-            usleep(1000);
+            usleep(5000);
         }
 
         return true;
