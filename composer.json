@@ -3,6 +3,7 @@
     "description": "Run multiple commands async",
     "keywords": ["symfony", "commands"],
     "type": "library",
+    "version": "2.0.1",
     "license": "MIT",
     "authors": [
         {
