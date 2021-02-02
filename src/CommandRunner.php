@@ -241,12 +241,13 @@ class CommandRunner
     private function spawnNextProcess()
     {
         if (!$this->openProcesses->isEmpty()) {
+            /** @var Process $process */
             $process = $this->openProcesses->first();
+            $process = $this->modifyCommand($process);
             $this->activeProcesses->add($process);
             if ($this->progressBar) {
                 $this->progressBar->setMessage($process->getCommandLine());
             }
-            $process = $this->modifyCommand($process);
             $process->start();
             $this->openProcesses->removeElement($process);
             if ($this->progressBar) {
