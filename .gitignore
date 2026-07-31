@@ -1,4 +1,6 @@
 
-\.idea/
-
-/vendor/
+.idea/
+.phpstan-cache/
+.phpunit.cache/
+composer.lock
+vendor/

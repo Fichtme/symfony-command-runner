@@ -1,8 +1,6 @@
 <?php
-/**
- * User: Henny Krijnen
- * Date: 10/27/17 3:17 PM.
- */
+
+declare(strict_types=1);
 
 namespace Fichtme\CommandRunner;
 
@@ -14,61 +12,59 @@ use Symfony\Component\Lock\LockInterface;
 use Symfony\Component\Lock\Store\FlockStore;
 use Symfony\Component\Process\PhpExecutableFinder;
 use Symfony\Component\Process\Process;
-use function sprintf;
 
-/**
- * Class CommandRunner
- */
+use function count;
+use function sprintf;
+use function usleep;
+
 class CommandRunner
 {
-    /** @var integer */
-    protected $limit = 5;
+    protected int $limit = 5;
 
-    /** @var ArrayCollection|Process[] */
-    protected $openProcesses = [];
+    /** @var ArrayCollection<int, Process> */
+    protected ArrayCollection $openProcesses;
 
-    /** @var bool */
-    protected $active = false;
+    protected bool $active = false;
 
-    /** @var ArrayCollection|Process[] */
-    protected $activeProcesses;
+    /** @var ArrayCollection<int, Process> */
+    protected ArrayCollection $activeProcesses;
 
-    /** @var ArrayCollection|Process[] */
-    protected $completedProcesses;
+    /** @var ArrayCollection<int, Process> */
+    protected ArrayCollection $completedProcesses;
 
-    /** @var SymfonyStyle */
-    protected $io;
+    protected ?SymfonyStyle $io = null;
 
-    /** @var ProgressBar */
-    protected $progressBar;
+    protected ?ProgressBar $progressBar = null;
 
-    /** @var string */
-    protected $binary;
+    protected string $binary;
 
-    /** @var string */
-    protected $subPath;
+    protected string $subPath;
 
-    /** @var ArrayCollection */
-    protected $errors;
+    /** @var ArrayCollection<int, array{command: string, error: string}> */
+    protected ArrayCollection $errors;
 
-    /** @var bool */
-    protected $continueOnError = true;
+    protected bool $continueOnError = true;
 
     /**
-     * CommandRunner constructor.
-     *
-     * @param array $processes
-     * @param null|string $binary
+     * @param list<Process> $processes
      */
-    public function __construct(array $processes, $binary = null)
+    public function __construct(array $processes, ?string $binary = null)
     {
+        /** @var ArrayCollection<int, Process> $activeProcesses */
+        $activeProcesses = new ArrayCollection();
+        /** @var ArrayCollection<int, Process> $completedProcesses */
+        $completedProcesses = new ArrayCollection();
+        /** @var ArrayCollection<int, array{command: string, error: string}> $errors */
+        $errors = new ArrayCollection();
+
         $this->openProcesses = new ArrayCollection($processes);
-        $this->activeProcesses = new ArrayCollection();
-        $this->completedProcesses = new ArrayCollection();
-        $this->errors = new ArrayCollection();
+        $this->activeProcesses = $activeProcesses;
+        $this->completedProcesses = $completedProcesses;
+        $this->errors = $errors;
 
         $finder = new PhpExecutableFinder();
-        $this->subPath = $_SERVER['PHP_SELF'] ?? $_SERVER['SCRIPT_NAME'] ?? $_SERVER['SCRIPT_FILENAME'];
+        $this->subPath = (string) ($_SERVER['PHP_SELF'] ?? $_SERVER['SCRIPT_NAME'] ?? $_SERVER['SCRIPT_FILENAME'] ?? '');
+
         if ($binary === null) {
             $this->setPhpBinary($finder->find());
         } else {
@@ -76,26 +72,17 @@ class CommandRunner
         }
     }
 
-    /**
-     * @param bool $continue
-     *
-     * @return $this
-     */
-    public function continueOnError($continue = true): self
+    public function continueOnError(bool $continue = true): self
     {
         $this->continueOnError = $continue;
 
         return $this;
     }
 
-    /**
-     * @param string
-     * @return $this
-     */
-    public function setPhpBinary($binary): CommandRunner
+    public function setPhpBinary(string|false|null $binary): CommandRunner
     {
         if (!$binary) {
-            $this->io->error('Unable to find PHP binary.');
+            $this->io?->error('Unable to find PHP binary.');
             exit(500);
         }
 
@@ -104,11 +91,7 @@ class CommandRunner
         return $this;
     }
 
-    /**
-     * @param string $binary
-     * @return $this
-     */
-    public function setBinary($binary): CommandRunner
+    public function setBinary(string $binary): CommandRunner
     {
         $this->binary = $binary;
 
@@ -118,18 +101,12 @@ class CommandRunner
     /**
      * The lock handler only works if you're using just one server.
      * If you have several hosts, you must not use this.
-     *
-     * @param string $command
-     * @param string $lockName
-     *
-     * @return LockInterface
      */
-    public static function lock(string $command, $lockName = ''): LockInterface
+    public static function lock(string $command, string $lockName = ''): LockInterface
     {
-        # TODO: dont use flockstore if user doesnt want to use it.
-        $store = new FlockStore();
-        $factory = new LockFactory($store);
+        $factory = new LockFactory(new FlockStore());
         $lock = $factory->createLock($command . $lockName, 0, true);
+
         if (!$lock->acquire()) {
             exit(1);
         }
@@ -137,23 +114,13 @@ class CommandRunner
         return $lock;
     }
 
-    /**
-     * @param $subPath
-     *
-     * @return $this
-     */
-    public function setSubPath($subPath): CommandRunner
+    public function setSubPath(string $subPath): CommandRunner
     {
         $this->subPath = $subPath;
 
         return $this;
     }
 
-    /**
-     * @param SymfonyStyle $io
-     *
-     * @return $this
-     */
     public function setIO(SymfonyStyle $io): CommandRunner
     {
         $this->io = $io;
@@ -161,52 +128,50 @@ class CommandRunner
         return $this;
     }
 
-    /**
-     * @return bool
-     */
     public function isActive(): bool
     {
         return $this->active;
     }
 
-    /**
-     * @param int $limit
-     *
-     * @return $this
-     */
-    public function setLimit($limit = 5): CommandRunner
+    public function setLimit(int $limit = 5): CommandRunner
     {
         $this->limit = $limit;
 
         return $this;
     }
 
-    public function run()
+    public function run(): void
     {
         $this->start();
+
         while ($this->hasOpenProcesses()) {
             if (!$this->process()) {
                 break;
             }
+
             usleep(5000);
         }
+
         $this->finish();
     }
 
-    private function start()
+    private function start(): void
     {
         $this->active = true;
-        if ($this->io) {
+
+        if ($this->io !== null) {
             $this->createProgressBar();
         }
     }
 
-    /**
-     * Create styled progressbar
-     */
-    private function createProgressBar()
+    private function createProgressBar(): void
     {
-        $progressBar = $this->io->createProgressBar(count($this->openProcesses) * 2);
+        $io = $this->io;
+        if ($io === null) {
+            return;
+        }
+
+        $progressBar = $io->createProgressBar(count($this->openProcesses) * 2);
         $progressBar->setFormat("%current%/%max% [%bar%] %percent:3s%% | %elapsed% \n%message%\n");
         $progressBar->setBarCharacter('<fg=green>▓</>');
         $progressBar->setEmptyBarCharacter('<fg=red>░</>');
@@ -214,100 +179,95 @@ class CommandRunner
         $this->progressBar->start();
     }
 
-    /**
-     * @return bool
-     */
     public function hasOpenProcesses(): bool
     {
         return !$this->openProcesses->isEmpty() || !$this->activeProcesses->isEmpty();
     }
 
-    /**
-     * @return bool
-     */
-    private function process()
+    private function process(): bool
     {
         if ($this->activeProcesses->count() < $this->limit) {
-            //add new process
             $this->spawnNextProcess();
         }
 
         return $this->validateRunningProcesses();
     }
 
-    /**
-     * Spawns next process
-     */
-    private function spawnNextProcess()
+    private function spawnNextProcess(): void
     {
-        if (!$this->openProcesses->isEmpty()) {
-            /** @var Process $process */
-            $orgiginProcess = $this->openProcesses->first();
-            $process = $this->modifyCommand($orgiginProcess);
-            $this->activeProcesses->add($process);
+        if ($this->openProcesses->isEmpty()) {
+            return;
+        }
 
-            if ($this->progressBar) {
-                $this->progressBar->setMessage($process->getCommandLine());
-                $this->progressBar->display();
-            }
-            $process->start();
-            $removed = $this->openProcesses->removeElement($orgiginProcess);
+        $originalProcess = $this->openProcesses->first();
+        if ($originalProcess === false) {
+            return;
+        }
 
-            if ($this->progressBar) {
-                $this->progressBar->setProgress($this->progressBar->getProgress() + 1);
-            }
+        $process = $this->modifyCommand($originalProcess);
+        $this->activeProcesses->add($process);
+
+        if ($this->progressBar !== null) {
+            $this->progressBar->setMessage($process->getCommandLine());
+            $this->progressBar->display();
+        }
+
+        $process->start();
+        $this->openProcesses->removeElement($originalProcess);
+
+        if ($this->progressBar !== null) {
+            $this->progressBar->setProgress($this->progressBar->getProgress() + 1);
         }
     }
 
-    /**
-     * @param Process $process
-     *
-     * @return Process
-     */
     private function modifyCommand(Process $process): Process
     {
         return Process::fromShellCommandline(sprintf(
             '%s %s %s',
             $this->binary,
             $this->subPath,
-            $process->getCommandLine()
+            $process->getCommandLine(),
         ));
     }
 
-    /**
-     * @return bool
-     */
     private function validateRunningProcesses(): bool
     {
-        $activeProcesses = $this->activeProcesses;
+        foreach ($this->activeProcesses as $key => $activeProcess) {
+            if ($activeProcess->isRunning()) {
+                usleep(5000);
+                continue;
+            }
 
-        foreach ($activeProcesses as $key => $activeProcess) {
-            if (!$activeProcess->isRunning()) {
-                if ($activeProcess->getErrorOutput()) {
-                    $this->errors->add([
-                        'command' => $activeProcess->getCommandLine(),
-                        'error' => $activeProcess->getErrorOutput()
-                    ]);
-                    if (!$this->continueOnError) {
-                        return false;
-                    }
-                }
+            $errorOutput = $activeProcess->getErrorOutput();
+            if (!$activeProcess->isSuccessful() || $errorOutput !== '') {
+                $this->errors->add([
+                    'command' => $activeProcess->getCommandLine(),
+                    'error' => $errorOutput !== ''
+                        ? $errorOutput
+                        : sprintf('Process exited with code %s.', (string) $activeProcess->getExitCode()),
+                ]);
 
-                $this->completedProcesses->add($activeProcess);
-                $this->activeProcesses->remove($key);
-                if ($this->progressBar) {
-                    $this->progressBar->setProgress($this->progressBar->getProgress() + 1);
+                if (!$this->continueOnError) {
+                    return false;
                 }
             }
+
+            $this->completedProcesses->add($activeProcess);
+            $this->activeProcesses->remove($key);
+
+            if ($this->progressBar !== null) {
+                $this->progressBar->setProgress($this->progressBar->getProgress() + 1);
+            }
+
             usleep(5000);
         }
 
         return true;
     }
 
-    private function finish()
+    private function finish(): void
     {
-        if (!$this->errors->isEmpty()) {
+        if ($this->io !== null) {
             foreach ($this->errors as $error) {
                 $this->io->warning($error);
             }
@@ -317,7 +277,7 @@ class CommandRunner
     }
 
     /**
-     * @return ArrayCollection
+     * @return ArrayCollection<int, array{command: string, error: string}>
      */
     public function getErrors(): ArrayCollection
     {

@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: PHP ${{ matrix.php }} / Symfony ${{ matrix.symfony }} / Collections ${{ matrix.collections }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - php: '8.2'
+            symfony: '6.4.*'
+            collections: '2.*'
+          - php: '8.2'
+            symfony: '7.4.*'
+            collections: '2.*'
+          - php: '8.4'
+            symfony: '8.0.*'
+            collections: '3.*'
+          - php: '8.5'
+            symfony: '8.1.*'
+            collections: '3.*'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+          tools: composer:v2
+
+      - name: Validate package metadata
+        run: composer validate --strict
+
+      - name: Force matrix dependency versions
+        run: >-
+          composer require --no-update
+          doctrine/collections:${{ matrix.collections }}
+          symfony/console:${{ matrix.symfony }}
+          symfony/lock:${{ matrix.symfony }}
+          symfony/process:${{ matrix.symfony }}
+
+      - name: Resolve full dependency graph
+        run: composer update --with-all-dependencies --no-interaction --prefer-dist
+
+      - name: Check PHP syntax
+        run: find src test -name '*.php' -print0 | xargs -0 -n1 php -l
+
+      - name: Run PHPUnit with all PHP diagnostics enabled
+        run: php -d error_reporting=E_ALL -d display_errors=1 vendor/bin/phpunit
+
+      - name: Run PHPStan
+        run: vendor/bin/phpstan analyse --no-progress
+
+      - name: Audit dependencies
+        run: composer audit
+
+  compatibility:
+    name: Composer compatibility checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          coverage: none
+          tools: composer:v2
+
+      - run: composer update --with-all-dependencies --no-interaction --prefer-dist
+
+      - name: Verify Symfony Lock 7.4 is not blocked by this package
+        run: |
+          composer prohibits symfony/lock "7.4.*" || true
+          if composer prohibits symfony/lock "7.4.*" 2>&1 | grep -F "fichtme/symfony-command-runner"; then
+            exit 1
+          fi
+
+      - name: Verify Symfony Lock 8.1 is not blocked by this package
+        run: |
+          composer prohibits symfony/lock "8.1.*" || true
+          if composer prohibits symfony/lock "8.1.*" 2>&1 | grep -F "fichtme/symfony-command-runner"; then
+            exit 1
+          fi

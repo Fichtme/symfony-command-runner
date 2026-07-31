@@ -1,69 +1,80 @@
-# symfony-command-runner
-Run multiple commands in another process and wait for completion.
+# Symfony Command Runner
+
+Run multiple Symfony console commands asynchronously and wait for all subprocesses to finish.
+
+## Requirements
+
+- PHP 8.2, 8.3, 8.4 or 8.5
+- Symfony Console, Lock and Process 6.4, 7.4 or 8.x
+- Doctrine Collections 2.x or 3.x (Collections 3.x itself requires a sufficiently recent PHP version; Composer selects 2.x on older supported runtimes)
+
+Install the package with Composer:
+
+```shell
+composer require fichtme/symfony-command-runner:^5.0
+```
 
 ## Usage
 
+The runner prefixes every supplied process command line with the configured PHP binary and the current script path. In a Symfony command, the current script is normally `bin/console`.
+
 ```php
-(new CommandRunner([
-            new Process("my:command -q"),
-            new Process("my:command2 -q"),
-            new Process("my:command3 -q").
-            new Process("my:command4 -q"),
-            new Process("my:command5 -q"),
-            new Process("my:command6 -q --env=$env"),
-        ]))
-            ->continueOnError(true)
-            ->setIO($this->io)
-            ->setLimit(3)
-            ->run();
-            
+<?php
+
+declare(strict_types=1);
+
+use Fichtme\CommandRunner\CommandRunner;
+use Symfony\Component\Console\Style\SymfonyStyle;
+use Symfony\Component\Process\Process;
+
+/** @var SymfonyStyle $io */
+$runner = (new CommandRunner([
+    new Process(['app:import', '--quiet']),
+    new Process(['app:reindex', '--quiet']),
+    new Process(['app:notify', '--env=prod']),
+]))
+    ->continueOnError(true)
+    ->setIO($io)
+    ->setLimit(3);
+
+$runner->run();
+
+foreach ($runner->getErrors() as $error) {
+    // $error contains the executed command line and its error output.
+}
 ```
 
-## Possible use case:
+When running outside a conventional Symfony entry point, set the console script explicitly:
+
 ```php
+$runner
+    ->setBinary(PHP_BINARY)
+    ->setSubPath(__DIR__ . '/bin/console')
+    ->run();
+```
 
-/**
- * Class UpdateCommand
- *
- * @package App\Command\Update
- */
-class UpdateCommand extends AbstractCommand
-{
-    /**
-     * Configures the current command.
-     */
-    protected function configure()
-    {
-        $this->setName('app:update')
-            ->setDescription('execute updates');
-    }
+## Locking
 
-    /**
-     * @param InputInterface  $input
-     * @param OutputInterface $output
-     *
-     * @return int
-     */
-    protected function execute(InputInterface $input, OutputInterface $output): int
-    {
-        $this->io->writeln('Running update scripts');
+`CommandRunner::lock()` uses Symfony's local `FlockStore`. It is suitable only when all competing processes use the same host and filesystem.
 
-        sleep(5); # Sleep so user can abort update
-        
-        (new CommandRunner([
-            new Process("my:command -q"),
-            new Process("my:command2 -q"),
-            new Process("my:command3 -q").
-            new Process("my:command4 -q"),
-            new Process("my:command5 -q"),
-            new Process("my:command6 -q"),
-        ]))
-            ->continueOnError(true)
-            ->setIO($this->io)
-            ->setLimit(3)
-            ->run();
-            
-        return 0;
-    }
+```php
+$lock = CommandRunner::lock('app:import', 'tenant-42');
+
+try {
+    // Run the protected work.
+} finally {
+    $lock->release();
 }
+```
+
+For backwards compatibility, failure to find a PHP binary and failure to acquire the requested lock still terminate the current process with `exit()`. Avoid lock contention in long-running workers that must retain control over their own lifecycle.
+
+## Development
+
+```shell
+composer validate --strict
+composer update
+vendor/bin/phpunit
+vendor/bin/phpstan analyse
+composer audit
 ```
