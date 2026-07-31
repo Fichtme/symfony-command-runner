@@ -160,7 +160,7 @@ final class CommandRunnerTest extends TestCase
 
         $runner->run();
 
-        self::assertStringContainsString('1/2', $output->contents());
+        self::assertStringContainsString('2/2', $output->contents());
         self::assertSame("progress\n", file_get_contents($outputFile));
     }
 
