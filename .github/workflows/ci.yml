@@ -17,7 +17,7 @@ jobs:
         include:
           - php: '8.2'
             symfony: '6.4.*'
-            collections: '2.*'
+            collections: '1.8.*'
           - php: '8.2'
             symfony: '7.4.*'
             collections: '2.*'
