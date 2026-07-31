@@ -6,7 +6,7 @@ Run multiple Symfony console commands asynchronously and wait for all subprocess
 
 - PHP 8.2, 8.3, 8.4 or 8.5
 - Symfony Console, Lock and Process 6.4, 7.4 or 8.x
-- Doctrine Collections 2.x or 3.x (Collections 3.x itself requires a sufficiently recent PHP version; Composer selects 2.x on older supported runtimes)
+- Doctrine Collections 1.8, 2.x or 3.x (Collections 3.x itself requires a sufficiently recent PHP version; Composer selects an older supported major on older runtimes)
 
 Install the package with Composer:
 
